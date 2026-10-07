@@ -5928,6 +5928,59 @@ bool ListWidget::lastMessageEditRequestNotify() const {
 	}
 }
 
+bool ListWidget::adjacentMessageEditRequestNotify(
+		FullMsgId current,
+		bool next) const {
+	if (!current && next) {
+		return false;
+	}
+	const auto now = base::unixtime::now();
+	const auto editable = [&](not_null<HistoryItem*> item) {
+		return item->out()
+			&& item->allowsEdit(now)
+			&& !item->isUploading();
+	};
+	const auto itemToEdit = [&](not_null<Element*> view) {
+		return session().data().groups().findItemToEdit(view->data()).get();
+	};
+	const auto select = [&](not_null<Element*> view) {
+		const auto item = itemToEdit(view);
+		if (item->fullId() == current || !editable(item)) {
+			return false;
+		}
+		editMessageRequestNotify(item->fullId());
+		return true;
+	};
+	if (!current) {
+		for (const auto &view : ranges::views::reverse(_items)) {
+			if (select(view)) {
+				return true;
+			}
+		}
+		return false;
+	}
+	const auto currentView = ranges::find_if(_items, [&](const auto &view) {
+		return itemToEdit(view)->fullId() == current;
+	});
+	if (currentView == end(_items)) {
+		return false;
+	}
+	if (next) {
+		for (auto i = std::next(currentView); i != end(_items); ++i) {
+			if (select(*i)) {
+				return true;
+			}
+		}
+	} else {
+		for (auto i = currentView; i != begin(_items);) {
+			if (select(*--i)) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 auto ListWidget::replyToMessageRequested() const
 -> rpl::producer<ReplyToMessageRequest> {
 	return _requestedToReplyToMessage.events();

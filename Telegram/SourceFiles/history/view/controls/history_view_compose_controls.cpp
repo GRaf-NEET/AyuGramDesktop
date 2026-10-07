@@ -2157,6 +2157,11 @@ auto ComposeControls::editLastMessageRequests() const
 	return _editLastMessageRequests.events();
 }
 
+auto ComposeControls::editMessageNavigationRequests() const
+-> rpl::producer<EditMessageNavigationRequest> {
+	return _editMessageNavigationRequests.events();
+}
+
 auto ComposeControls::replyNextRequests() const
 -> rpl::producer<ReplyNextRequest> {
 	return _replyNextRequests.events();
@@ -3071,6 +3076,16 @@ void ComposeControls::initKeyHandler() {
 			return Result::Continue;
 		}
 		const auto k = static_cast<QKeyEvent*>(e.get());
+		const auto modifiers = k->modifiers()
+			& ~(Qt::KeypadModifier | Qt::GroupSwitchModifier);
+		if (modifiers == (Qt::AltModifier | Qt::ShiftModifier)
+			&& (k->key() == Qt::Key_Up || k->key() == Qt::Key_Down)) {
+			_editMessageNavigationRequests.fire({
+				.current = _header->editMsgId(),
+				.next = (k->key() == Qt::Key_Down),
+			});
+			return Result::Cancel;
+		}
 
 		if ((k->modifiers() & kCommonModifiers) == Qt::ControlModifier) {
 			const auto isUp = (k->key() == Qt::Key_Up);

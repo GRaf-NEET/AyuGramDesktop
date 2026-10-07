@@ -284,6 +284,7 @@ public:
 	MsgId maxMsgId() const;
 	MsgId msgIdForRead() const;
 	HistoryItem *lastEditableMessage() const;
+	HistoryItem *editableMessageAround(MsgId current, bool next) const;
 
 	void resizeToWidth(int newWidth);
 	void forceFullResize();

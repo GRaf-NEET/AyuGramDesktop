@@ -164,6 +164,10 @@ public:
 	using SendActionUpdate = Controls::SendActionUpdate;
 	using SetHistoryArgs = Controls::SetHistoryArgs;
 	using ReplyNextRequest = Controls::ReplyNextRequest;
+	struct EditMessageNavigationRequest {
+		FullMsgId current;
+		bool next = false;
+	};
 	using FieldHistoryAction = Ui::InputField::HistoryAction;
 	using Mode = ComposeControlsMode;
 	using ToggleCommentsState = Controls::ToggleCommentsState;
@@ -239,6 +243,8 @@ public:
 	-> rpl::producer<not_null<QKeyEvent*>>;
 	[[nodiscard]] auto editLastMessageRequests() const
 	-> rpl::producer<not_null<QKeyEvent*>>;
+	[[nodiscard]] auto editMessageNavigationRequests() const
+	-> rpl::producer<EditMessageNavigationRequest>;
 	[[nodiscard]] auto replyNextRequests() const
 	-> rpl::producer<ReplyNextRequest>;
 	[[nodiscard]] rpl::producer<> focusRequests() const;
@@ -628,6 +634,8 @@ private:
 	rpl::event_stream<QString> _sendCommandRequests;
 	rpl::event_stream<not_null<QKeyEvent*>> _scrollKeyEvents;
 	rpl::event_stream<not_null<QKeyEvent*>> _editLastMessageRequests;
+	rpl::event_stream<EditMessageNavigationRequest>
+		_editMessageNavigationRequests;
 	rpl::event_stream<std::optional<bool>> _attachRequests;
 	Fn<void(std::shared_ptr<Ui::PreparedBundle>, Api::SendOptions)> _sendAsFileConfirmed;
 	rpl::event_stream<> _likeToggled;

@@ -6777,6 +6777,19 @@ void HistoryWidget::insertTextAtCursor(const QString &text) {
 bool HistoryWidget::eventFilter(QObject *obj, QEvent *e) {
 	if (e->type() == QEvent::KeyPress) {
 		const auto k = static_cast<QKeyEvent*>(e);
+		const auto modifiers = k->modifiers()
+			& ~(Qt::KeypadModifier | Qt::GroupSwitchModifier);
+		if (modifiers == (Qt::AltModifier | Qt::ShiftModifier)
+			&& (k->key() == Qt::Key_Up || k->key() == Qt::Key_Down)) {
+			if (const auto item = _history
+					? _history->editableMessageAround(
+						_editMsgId,
+						k->key() == Qt::Key_Down)
+					: nullptr) {
+				editMessage(item, {});
+			}
+			return true;
+		}
 		if ((k->modifiers() & kCommonModifiers) == Qt::ControlModifier) {
 			if (k->key() == Qt::Key_Up) {
 #ifdef Q_OS_MAC

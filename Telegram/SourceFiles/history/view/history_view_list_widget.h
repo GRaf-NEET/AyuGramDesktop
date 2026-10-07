@@ -458,6 +458,9 @@ public:
 	[[nodiscard]] rpl::producer<FullMsgId> editMessageRequested() const;
 	void editMessageRequestNotify(FullMsgId item) const;
 	[[nodiscard]] bool lastMessageEditRequestNotify() const;
+	[[nodiscard]] bool adjacentMessageEditRequestNotify(
+		FullMsgId current,
+		bool next) const;
 	[[nodiscard]] auto replyToMessageRequested() const
 		-> rpl::producer<ReplyToMessageRequest>;
 	void replyToMessageRequestNotify(

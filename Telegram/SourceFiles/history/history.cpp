@@ -3831,6 +3831,59 @@ HistoryItem *History::lastEditableMessage() const {
 	return nullptr;
 }
 
+HistoryItem *History::editableMessageAround(MsgId current, bool next) const {
+	if (!current && next) {
+		return nullptr;
+	}
+	const auto now = base::unixtime::now();
+	const auto itemToEdit = [&](not_null<HistoryItem*> item) {
+		return owner().groups().findItemToEdit(item).get();
+	};
+	const auto editable = [&](not_null<HistoryItem*> item) {
+		const auto canonical = itemToEdit(item);
+		return canonical->out()
+			&& canonical->allowsEdit(now)
+			&& !canonical->isUploading();
+	};
+	auto items = std::vector<HistoryItem*>();
+	for (const auto &block : blocks) {
+		for (const auto &message : block->messages) {
+			items.push_back(message->data());
+		}
+	}
+	if (!current) {
+		for (auto i = end(items); i != begin(items);) {
+			const auto item = itemToEdit(*--i);
+			if (editable(item)) {
+				return item;
+			}
+		}
+		return nullptr;
+	}
+	const auto currentItem = ranges::find_if(items, [&](auto item) {
+		return itemToEdit(item)->id == current;
+	});
+	if (currentItem == end(items)) {
+		return nullptr;
+	}
+	if (next) {
+		for (auto i = std::next(currentItem); i != end(items); ++i) {
+			const auto item = itemToEdit(*i);
+			if (item->id != current && editable(item)) {
+				return item;
+			}
+		}
+	} else {
+		for (auto i = currentItem; i != begin(items);) {
+			const auto item = itemToEdit(*--i);
+			if (item->id != current && editable(item)) {
+				return item;
+			}
+		}
+	}
+	return nullptr;
+}
+
 void History::resizeToWidth(int newWidth) {
 	using Request = HistoryBlock::ResizeRequest;
 	const auto request = (_flags & Flag::PendingAllItemsResize)

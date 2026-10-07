@@ -1743,6 +1743,14 @@ void ChatWidget::setupComposeControls() {
 		}
 	}, lifetime());
 
+	_composeControls->editMessageNavigationRequests(
+	) | rpl::on_next([=](
+			ComposeControls::EditMessageNavigationRequest request) {
+		_inner->adjacentMessageEditRequestNotify(
+			request.current,
+			request.next);
+	}, lifetime());
+
 	_composeControls->replyNextRequests(
 	) | rpl::on_next([=](ComposeControls::ReplyNextRequest &&data) {
 		if (_composeControls->isEditingMessage()
