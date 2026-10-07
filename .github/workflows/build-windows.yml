@@ -1,0 +1,176 @@
+name: Build Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub release tag for uploaded artifacts
+        required: true
+        default: v7.2.9-custom.1
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-windows-release
+  cancel-in-progress: false
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      BUILD_ROOT: ${{ github.workspace }}\TBuild
+      SOURCE_ROOT: ${{ github.workspace }}\TBuild\AyuGramDesktop
+      LIBRARIES_ROOT: ${{ github.workspace }}\TBuild\Libraries\win64
+
+    steps:
+      - name: Create build layout
+        run: |
+          New-Item -ItemType Directory -Force $env:LIBRARIES_ROOT | Out-Null
+
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: TBuild/AyuGramDesktop
+
+      - name: Initialize submodules
+        shell: bash
+        run: |
+          cd "$SOURCE_ROOT"
+          git submodule update --init --depth=1
+
+      - name: Read required Windows SDK
+        run: |
+          $content = Get-Content "$env:SOURCE_ROOT\docs\building-win.md" -Raw
+          if ($content -notmatch '\*\*([^*]+)\*\* SDK version') {
+            throw 'Could not determine the required Windows SDK.'
+          }
+          "WINDOWS_SDK=$($Matches[1])" >> $env:GITHUB_ENV
+
+      - name: Ensure MSVC 14.44 ATL tools
+        run: |
+          $installer = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+          $vswhere = Join-Path $installer 'vswhere.exe'
+          $setup = Join-Path $installer 'setup.exe'
+          $installation = @(& $vswhere -latest -products '*' -property installationPath)[0]
+          if (-not $installation) {
+            throw 'Visual Studio is not installed on this runner.'
+          }
+          $header = Get-ChildItem "$installation\VC\Tools\MSVC\14.44.*\atlmfc\include\atlbase.h" -ErrorAction SilentlyContinue
+          if (-not $header) {
+            $process = Start-Process -FilePath $setup -Wait -PassThru -WindowStyle Hidden -ArgumentList @(
+              'modify', '--installPath', "`"$installation`"",
+              '--add', 'Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64',
+              '--add', 'Microsoft.VisualStudio.Component.VC.14.44.17.14.ATL',
+              '--quiet', '--norestart', '--nocache'
+            )
+            if ($process.ExitCode -notin @(0, 3010)) {
+              throw "Visual Studio Installer exited with $($process.ExitCode)."
+            }
+          }
+
+      - name: Set up MSVC
+        uses: Eden-CI/msvc-dev-cmd@1bd71f95d6f3d1b2b3395b335cc63bcdc90cf223
+        with:
+          arch: x64
+          sdk: ${{ env.WINDOWS_SDK }}
+          toolset: '14.44'
+
+      - name: Configure NuGet sources
+        shell: cmd
+        run: |
+          nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
+          nuget sources Add -Source https://api.nuget.org/v3/index.json & exit 0
+
+      - name: Restore ThirdParty cache
+        id: cache-third-party
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ env.BUILD_ROOT }}\ThirdParty
+          key: windows-x64-third-party-${{ hashFiles('TBuild/AyuGramDesktop/Telegram/build/prepare/prepare.py') }}
+          restore-keys: windows-x64-third-party-
+
+      - name: Restore libraries cache
+        id: cache-libraries
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ env.LIBRARIES_ROOT }}
+          key: windows-x64-release-libraries-${{ hashFiles('TBuild/AyuGramDesktop/Telegram/build/prepare/prepare.py') }}
+          restore-keys: windows-x64-release-libraries-
+
+      - name: Prepare dependencies
+        shell: cmd
+        run: |
+          %SOURCE_ROOT%\Telegram\build\prepare\win.bat silent
+
+      - name: Prune dependency build files
+        shell: bash
+        run: |
+          find "$LIBRARIES_ROOT" '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -path '*/nv-codec-headers/*' ')' -type f ')' -o -empty ')' -delete
+
+      - name: Save ThirdParty cache
+        if: steps.cache-third-party.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ env.BUILD_ROOT }}\ThirdParty
+          key: ${{ steps.cache-third-party.outputs.cache-primary-key }}
+
+      - name: Save libraries cache
+        if: steps.cache-libraries.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ env.LIBRARIES_ROOT }}
+          key: ${{ steps.cache-libraries.outputs.cache-primary-key }}
+
+      - name: Configure and build AyuGram
+        shell: cmd
+        run: |
+          cd /d %SOURCE_ROOT%\Telegram
+          call configure.bat x64 ^
+            -D TDESKTOP_API_ID=2040 ^
+            -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627 ^
+            -D CMAKE_CONFIGURATION_TYPES=Release ^
+            -D DESKTOP_APP_SPECIAL_TARGET=win64 ^
+            -D DESKTOP_APP_ENABLE_LTO=OFF
+          cmake --build ..\out --config Release --target Telegram --parallel 4
+
+      - name: Package unsigned portable build
+        id: package
+        run: |
+          $binary = "$env:SOURCE_ROOT\out\Release\AyuGram.exe"
+          if (-not (Test-Path -LiteralPath $binary)) {
+            throw "Build output is missing: $binary"
+          }
+          $tag = '${{ inputs.release_tag }}'
+          $asset = "AyuGram-$tag-windows-x64-portable-unsigned.zip"
+          $staging = "$env:RUNNER_TEMP\AyuGramCustom"
+          New-Item -ItemType Directory -Force "$staging\TelegramForcePortable" | Out-Null
+          Set-Content -LiteralPath "$staging\TelegramForcePortable\.keep" -Value '' -NoNewline
+          Copy-Item -LiteralPath $binary -Destination $staging
+          Compress-Archive -Path $staging -DestinationPath "$env:RUNNER_TEMP\$asset" -CompressionLevel Optimal
+          $hash = (Get-FileHash "$env:RUNNER_TEMP\$asset" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $asset" | Set-Content "$env:RUNNER_TEMP\$asset.sha256" -Encoding ascii
+          "asset=$asset" >> $env:GITHUB_OUTPUT
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-x64-portable-unsigned
+          path: |
+            ${{ runner.temp }}\${{ steps.package.outputs.asset }}
+            ${{ runner.temp }}\${{ steps.package.outputs.asset }}.sha256
+          retention-days: 30
+
+      - name: Attach files to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload '${{ inputs.release_tag }}' `
+            "$env:RUNNER_TEMP\${{ steps.package.outputs.asset }}" `
+            "$env:RUNNER_TEMP\${{ steps.package.outputs.asset }}.sha256" `
+            --repo '${{ github.repository }}'
