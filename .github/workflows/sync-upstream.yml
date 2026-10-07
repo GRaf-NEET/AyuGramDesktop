@@ -1,0 +1,62 @@
+name: Sync upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out custom branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: custom/edit-message-navigation
+          fetch-depth: 0
+
+      - name: Fetch upstream and fork branches
+        run: |
+          git remote add upstream https://github.com/AyuGram/AyuGramDesktop.git
+          git fetch --no-tags upstream dev
+          git fetch --no-tags origin dev custom/edit-message-navigation
+
+      - name: Fast-forward clean base branch
+        run: |
+          if ! git merge-base --is-ancestor origin/dev upstream/dev; then
+            echo '::error::Fork dev has commits that are not in upstream/dev; refusing to overwrite it.'
+            exit 1
+          fi
+          git switch --force-create dev origin/dev
+          git merge --ff-only upstream/dev
+          git push origin dev:dev
+
+      - name: Rebase custom branch
+        run: |
+          expected=$(git rev-parse origin/custom/edit-message-navigation)
+          echo "EXPECTED_FEATURE_SHA=$expected" >> "$GITHUB_ENV"
+          git switch --force-create custom/edit-message-navigation origin/custom/edit-message-navigation
+          if ! git rebase upstream/dev; then
+            git status --short
+            git rebase --abort
+            echo '::error::The custom patch conflicts with upstream/dev. Resolve the rebase manually.'
+            exit 1
+          fi
+
+      - name: Validate rebased patch
+        run: |
+          git diff --check upstream/dev...HEAD
+          test "$(git merge-base HEAD upstream/dev)" = "$(git rev-parse upstream/dev)"
+
+      - name: Push rebased custom branch
+        run: |
+          git push \
+            --force-with-lease=refs/heads/custom/edit-message-navigation:${EXPECTED_FEATURE_SHA} \
+            origin HEAD:custom/edit-message-navigation
