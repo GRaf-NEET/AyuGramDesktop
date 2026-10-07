@@ -1,5 +1,7 @@
 # AyuGram
 
+> This fork adds keyboard navigation between your editable messages. See [fork details](FORK.md).
+
 ![AyuGram Logo](.github/AyuGram.png) ![AyuChan](.github/AyuChan.png)
 
 [ English  |   [Русский](README-RU.md) ]
