@@ -101,6 +101,16 @@ jobs:
           key: windows-x64-release-libraries-${{ hashFiles('TBuild/AyuGramDesktop/Telegram/build/prepare/prepare.py') }}
           restore-keys: windows-x64-release-libraries-
 
+      - name: Apply current MSYS2 package name
+        run: |
+          $path = "$env:SOURCE_ROOT\Telegram\build\prepare\prepare.py"
+          $content = Get-Content -LiteralPath $path -Raw
+          $updated = $content.Replace('mingw-w64-x86_64-diffutils', 'diffutils')
+          if ($updated -eq $content) {
+            throw 'The expected MSYS2 package reference was not found.'
+          }
+          Set-Content -LiteralPath $path -Value $updated -Encoding utf8NoBOM
+
       - name: Prepare dependencies
         shell: cmd
         run: |
